@@ -1,0 +1,1 @@
+Test_smiles.smi are random compounds from ChEMBL

@@ -1,0 +1,15 @@
+channels:
+  - rdkit
+  - pytorch
+dependencies:
+  - python=3.7.4
+  - rdkit
+  - numpy
+  - pytest
+  - matplotlib
+  - tqdm
+  - pytorch
+  - torchvision
+  - cudatoolkit=10.1
+  - ipywidgets
+  - h5py
