@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="PySMILESutils",
-    version="1.0.0",
+    version="1.1.0",
     description="Utilities for working with SMILES based encodings of molecules for deep learning (PyTorch oriented). ",
     author="Molecular AI group",
     author_email="esben.bjerrum@astrazeneca.com",
