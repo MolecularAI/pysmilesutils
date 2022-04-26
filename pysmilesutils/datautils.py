@@ -24,6 +24,8 @@ from torch.utils.data import (
     Sampler,
     BatchSampler,
     SubsetRandomSampler,
+    RandomSampler,
+    SequentialSampler,
 )
 from torch.utils.data.dataloader import default_collate
 
@@ -548,3 +550,84 @@ class PickledMultiDataset(MultiDataset):
     def _getdata(self, idx: int) -> Any:
         with open(self._data_collection[idx], "rb") as f:
             return pickle.load(f)
+
+
+class TokenSampler(Sampler):
+    """
+    A Sampler which groups sequences into buckets based on length and constructs batches using
+    a (potentially) different number of sequences from each bucket to achieve a target number of
+    tokens in each batch. This approach has a number of advantages:
+        - Faster training and eval since there are fewer pad tokens vs random batching
+        - Potentially improved training stability since the number of tokens is approx the same
+          each batch
+
+    Note: There is a systematic error in the batch size (it will be slightly larger than the
+          target size on average) since we simply take the mean of the seq lengths in the bucket,
+          this does not account for padding that will result from the largest seq in the batch.
+
+    :param num_buckets: Number of buckets to split sequences into
+    :param seq_lengths: The length of the sequences in the dataset (in the same order)
+    :param batch_size: Target number of tokens in each batch
+    :param shuffle: Shuffle the indices within each bucket
+    :param drop_last: Forget about the indices remaining at the end of each bucket
+    """
+
+    def __init__(
+        self,
+        num_buckets: int,
+        seq_lengths: Sequence[int],
+        batch_size: int,
+        shuffle: bool = True,
+        drop_last: bool = True,
+    ):
+
+        if not drop_last:
+            raise NotImplementedError("Keeping last elements is not yet supported")
+
+        seq_lengths = np.asarray(seq_lengths)
+        bucket_edges = np.histogram_bin_edges(
+            seq_lengths,
+            bins=num_buckets,
+            range=(seq_lengths.min(), seq_lengths.max() + 1),
+        )
+        bucket_indices = np.digitize(seq_lengths, bins=bucket_edges)
+        buckets = [
+            np.where(bucket_indices == idx)[0].tolist()
+            for idx in range(1, num_buckets + 1)
+        ]
+        lengths = [
+            seq_lengths[np.where(bucket_indices == idx)[0]]
+            for idx in range(1, num_buckets + 1)
+        ]
+
+        if shuffle:
+            samplers = [RandomSampler(idxs) for idxs in buckets]
+        else:
+            samplers = [SequentialSampler(idxs) for idxs in buckets]
+
+        # Work out approx number of sequences required for each bucket
+        num_seqs = [batch_size // length.mean() for length in lengths]
+        num_seqs = [int(num_sq) for num_sq in num_seqs]
+
+        num_batches = [
+            len(bucket) // num_seqs[b_idx] for b_idx, bucket in enumerate(buckets)
+        ]
+        num_batches = [int(num_bs) for num_bs in num_batches]
+
+        self.num_seqs = num_seqs
+        self.buckets = buckets
+        self.num_batches = num_batches
+        self.samplers = samplers
+
+    def __iter__(self):
+        iters = [iter(sampler) for sampler in self.samplers]
+        rem_batches = self.num_batches[:]
+        while sum(rem_batches) > 0:
+            b_idx = random.choices(range(len(rem_batches)), weights=rem_batches, k=1)[0]
+            batch_idxs = [next(iters[b_idx]) for _ in range(self.num_seqs[b_idx])]
+            batch = [self.buckets[b_idx][idx] for idx in batch_idxs]
+            rem_batches[b_idx] -= 1
+            yield batch
+
+    def __len__(self):
+        return sum(self.num_batches)
