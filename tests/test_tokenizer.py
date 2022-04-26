@@ -16,12 +16,12 @@ class TestSMILESTokenizer:
                 test_smiles = [smi[:-1] for smi in smiles_data]
         except FileNotFoundError:
             print("Cannot find 'test_smiles.smi'")
-        
+
         return test_smiles
 
     @pytest.fixture
     def tokenizer(self, get_test_smiles):
-        return SMILESAtomTokenizer(smiles=get_test_smiles)
+        return SMILESTokenizer(smiles=get_test_smiles)
 
     def test_default_arguments(self):
         with pytest.warns(Warning):
@@ -51,7 +51,9 @@ class TestSMILESTokenizer:
 
         smiles_tokenized = tok.tokenize(get_test_smiles)
 
-        assert smiles_tokenized == [["^"] + list(smi) + ["&"] for smi in get_test_smiles]
+        assert smiles_tokenized == [
+            ["^"] + list(smi) + ["&"] for smi in get_test_smiles
+        ]
 
     def test_tokenize_multi_char_tokens(self):
         smiles = [
@@ -98,10 +100,17 @@ class TestSMILESTokenizer:
 
     def test_detokenize_new_lines_and_control_and_padding(self, tokenizer):
         smiles = ["^CN1&\n", "^cccCl&\n"]
-        tokens = [[" ", "^", "C", "N", "1", "&"], ["^", "c", "c", "c", "Cl", "&", " "]]
+        tokens = [
+            [" ", "^", "C", "N", "1", "&"],
+            ["^", "c", "c", "c", "Cl", "&", " "],
+            ["^", "c", "c", "c", "Cl", "&", "Br", " "],
+        ]
 
         smiles_raw = tokenizer.detokenize(tokens)
         smiles_control = tokenizer.detokenize(tokens, include_control_tokens=True)
+        smiles_truncated = tokenizer.detokenize(
+            tokens, include_control_tokens=False, truncate_at_end_token=True
+        )
 
         smiles_end_of_line = tokenizer.detokenize(
             tokens, include_end_of_line_token=True
@@ -121,6 +130,9 @@ class TestSMILESTokenizer:
 
         for smi, smi_detokenized in zip(smiles, smiles_all):
             assert smi == smi_detokenized
+
+        for smi, smi_truncated in zip(smiles, smiles_end_of_line):
+            assert smi[1:-2] + smi[-1:] == smi_truncated
 
     def test_ids_to_encoding_to_ids(self, tokenizer, get_test_smiles):
         encoding_ids = tokenizer(get_test_smiles)
@@ -148,6 +160,23 @@ class TestSMILESTokenizer:
         for smi, smi_decoded in zip(get_test_smiles, decoded_smiles):
             assert smi == smi_decoded
 
+    def test_save_and_load(self, tokenizer, tmpdir):
+        test_smiles = ["C.CCCcc1(Br)cccC"]
+        filename = str(tmpdir / "vocab.json")
+
+        tokenizer.save_vocabulary(filename)
+
+        assert os.path.exists(filename)
+
+        tokenizer2 = SMILESTokenizer(filename=filename)
+
+        assert tokenizer(test_smiles)[0].tolist() == tokenizer2(test_smiles)[0].tolist()
+
+        with pytest.warns(Warning):
+            tokenizer3 = SMILESTokenizer()
+
+        assert tokenizer(test_smiles)[0].tolist() != tokenizer3(test_smiles)[0].tolist()
+
 
 class TestSMILESAtomTokenizer:
     @pytest.fixture
@@ -159,7 +188,7 @@ class TestSMILESAtomTokenizer:
                 test_smiles = [smi[:-1] for smi in smiles_data]
         except FileNotFoundError:
             print("Cannot find 'test_smiles.smi'")
-        
+
         return test_smiles
 
     @pytest.fixture
@@ -172,7 +201,7 @@ class TestSMILESAtomTokenizer:
                 tokens = [t for t in file.read().split() if not t.startswith("#")]
         except FileNotFoundError:
             print("Cannot find 'multi_char_atoms.txt'")
-        
+
         return tokens
 
     def test_default_atom_tokens(self):
@@ -188,8 +217,6 @@ class TestSMILESAtomTokenizer:
 
         atom_tokenizer = SMILESAtomTokenizer(smiles=get_test_smiles)
 
-        print(tokenizer.vocabulary)
-        print(atom_tokenizer.vocabulary)
         assert tokenizer.vocabulary == atom_tokenizer.vocabulary
 
         for tokens, atom_tokens in zip(

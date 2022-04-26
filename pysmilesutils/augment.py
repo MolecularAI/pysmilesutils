@@ -24,10 +24,12 @@ class Augmenter:
     The Boolean ".active" property can be set to toggle augmentation.
 
     :param active: Whether the augmentation should be active or not, defaults to True.
+    :param augment_prob: if lower than 1, it is used to randomly turn-off augmentation on an individual basis
     """
 
-    def __init__(self, active: bool = True) -> None:
+    def __init__(self, active: bool = True, augment_prob: float = 1.0) -> None:
         self.active = active
+        self.augment_prob = augment_prob
 
     def __call__(self, data: Union[Iterable[Any], Any]) -> List[Any]:
         """Augments either a list of Anys or a single molecule by making sure
@@ -79,6 +81,8 @@ class MolAugmenter(Augmenter):
         :return: RDKit molecule object with a randomized atom-order.
         """
         # Standard shuffle surprisingly leads to 35% slower code.
+        if self.augment_prob < np.random.rand():
+            return mol
         atom_order: List[int] = list(range(mol.GetNumAtoms()))
         np.random.shuffle(atom_order)
         return Chem.RenumberAtoms(mol, atom_order)
@@ -101,12 +105,16 @@ class SMILESAugmenter(MolAugmenter):
     non-canonical SMILES. The unrestricted provides more SMILES per molecule, but also contains
     more complex branching and ring-closure patterns than the restricted version.
 
+    :param active: Whether the augmentation should be active or not, defaults to True.
+    :param augment_prob: if lower than 1, it is used to randomly turn-off augmentation on an individual basis
     :param restricted: Use restricted augmentation rather than fully randomized, defaults to True
     """
 
-    def __init__(self, restricted: bool = True) -> None:
+    def __init__(
+        self, active: bool = True, augment_prob: float = 1.0, restricted: bool = True
+    ) -> None:
         self.restricted = restricted
-        super().__init__()
+        super().__init__(active, augment_prob)
 
     def augment_smiles(self, smiles: Iterable[str]) -> List[str]:
         """Augments a list of SMILES using the RDKit SMILES doRandom flag.
@@ -120,11 +128,23 @@ class SMILESAugmenter(MolAugmenter):
         """
         smiles_aug: List[str] = []
         for smi in smiles:
-            mols: List[Mol] = list(map(Chem.MolFromSmiles, smi.split(".")))
-            smi_new: List[str] = [Chem.MolToSmiles(mol, doRandom=True) for mol in mols]
-            shuffle(smi_new)
-            smiles_aug.append(".".join(smi_new))
+            if self.augment_prob < np.random.rand():
+                smiles_aug.append(smi)
+                continue
 
+            mols: List[Mol] = list(map(Chem.MolFromSmiles, smi.split(".")))
+            for _ in range(3):
+                try:
+                    smi_new: List[str] = [Chem.MolToSmiles(mol, doRandom=True) for mol in mols]
+                    shuffle(smi_new)
+                    smiles_aug.append(".".join(smi_new))
+                    break
+                except Exception as e:
+                    print(f"Augmentation failed for {smi} with error: {e}")
+            else:
+                smiles_aug.append(smi)
+                print(f"Augmentation failed three times for {smi}, returning unaugmented original")
+                
         return smiles_aug
 
     def augment_smiles_restricted(self, smiles: Iterable[str]) -> List[str]:
@@ -141,11 +161,27 @@ class SMILESAugmenter(MolAugmenter):
         """
         smiles_aug: List[str] = []
 
-        for smi in smiles:
-            mol: Mol = Chem.MolFromSmiles(smi)
-            mol_rand = self.randomize_mol_restricted(mol)
-            smiles_aug.append(Chem.MolToSmiles(mol_rand, canonical=False))
+        augment_prob = self.augment_prob
+        self.augment_prob = 1.0  # To avoid double application
 
+        for smi in smiles:
+            if augment_prob < np.random.rand():
+                smiles_aug.append(smi)
+                continue
+            
+            mol: Mol = Chem.MolFromSmiles(smi)
+            for _ in range(3):
+                try:
+                    mol_rand = self.randomize_mol_restricted(mol)
+                    smiles_aug.append(Chem.MolToSmiles(mol_rand, canonical=False))
+                    break
+                except Exception as e:
+                    print(f"Augmentation failed for {smi} with error: {e}")
+            else:
+                smiles_aug.append(smi)
+                print(f"Augmentation failed three times for {smi}, returning unaugmented original")
+
+        self.augment_prob = augment_prob
         return smiles_aug
 
     def _augment(self, data: Iterable[str]) -> List[str]:

@@ -1,6 +1,7 @@
 """SMILES Tokenizer module.
 """
 import re
+import json
 import warnings
 from re import Pattern
 from typing import Dict
@@ -8,6 +9,7 @@ from typing import Iterator
 from typing import List
 from typing import Optional
 from typing import Union
+from typing import Any
 
 import torch
 
@@ -56,7 +58,7 @@ class SMILESTokenizer:
     :param padding_token: Token used for padding. Defalts to " ".
     :param unknown_token: Token that is used for unknown ids when decoding encoded data. Defaults to "?".
     :param encoding_type: The type of encoding used for the final output.
-
+    :param filename: if given and `smiles` is None, load the vocabulary from disc
     :raises: ValueError: If the `encoding_type` is invalid.
     """
 
@@ -70,6 +72,7 @@ class SMILESTokenizer:
         padding_token: str = " ",
         unknown_token: str = "?",
         encoding_type: str = "index",  # "one hot" or "index"
+        filename: str = None,
     ) -> None:
         self._check_encoding_type(encoding_type)
 
@@ -86,18 +89,21 @@ class SMILESTokenizer:
         regex_token_patterns = regex_token_patterns or []
         tokens = tokens or []
 
-        with warnings.catch_warnings(record=smiles != []):
+        with warnings.catch_warnings(record=smiles != [] or filename):
             self.add_regex_token_patterns(regex_token_patterns)
             self.add_tokens(tokens)
 
         self._re: Optional[Pattern] = None
         self._vocabulary: Dict[str, int] = {}
         self._decoder_vocabulary: Dict[int, str] = {}
-        self.create_vocabulary_from_smiles(smiles)
+        if smiles:
+            self.create_vocabulary_from_smiles(smiles)
+        elif filename:
+            self.load_vocabulary(filename)
 
     @property
     def special_tokens(self) -> Dict[str, str]:
-        """ Returns a dictionary of non-character tokens"""
+        """Returns a dictionary of non-character tokens"""
         return {
             "start": self._beginning_of_smiles_token,
             "end": self._end_of_smiles_token,
@@ -142,6 +148,13 @@ class SMILESTokenizer:
 
     def __len__(self) -> int:
         return len(self.vocabulary)
+
+    def __getitem__(self, item: str) -> int:
+        if item in self.special_tokens:
+            return self.vocabulary[self.special_tokens[item]]
+        if item not in self.vocabulary:
+            raise KeyError(f"Unknown token: {item}")
+        return self.vocabulary[item]
 
     def _reset_vocabulary(self) -> Dict[str, int]:
         """Create a new tokens vocabulary.
@@ -299,6 +312,7 @@ class SMILESTokenizer:
         token_data: List[List[str]],
         include_control_tokens: bool = False,
         include_end_of_line_token: bool = False,
+        truncate_at_end_token: bool = False,
     ) -> List[str]:
         """Detokenizes lists of tokens into SMILES by concatenating the token strings.
 
@@ -310,14 +324,22 @@ class SMILESTokenizer:
             and end tokens are stripped from the token lists. Defaults to False
         :param include_end_of_line_token: If `True` end of line
             characters `\\n` are added to the detokenized SMILES. Defaults to False
+        :param truncate_at_end_token: If `True`, all tokens after the end-token is removed.
+            Defaults to False.
 
         :return: A list of detokenized SMILES.
         """
 
         character_lists = [tokens.copy() for tokens in token_data]
 
-        for tokens in character_lists:
-            self._strip_list(tokens, strip_control_tokens=not include_control_tokens)
+        character_lists = [
+            self._strip_list(
+                tokens,
+                strip_control_tokens=not include_control_tokens,
+                truncate_at_end_token=truncate_at_end_token,
+            )
+            for tokens in character_lists
+        ]
 
         if include_end_of_line_token:
             for s in character_lists:
@@ -476,14 +498,47 @@ class SMILESTokenizer:
         # Recreate tokens vocabulary
         self._vocabulary = {t: i for i, t in enumerate(vocabulary_tokens)}
 
+    def load_vocabulary(self, filename: str) -> None:
+        """
+        Load a serialized vocabulary from a JSON format
+
+        :param filename: the path to the file on disc
+        """
+        with open(filename, "r") as fileobj:
+            dict_ = json.load(fileobj)
+
+        self._update_state(dict_["properties"])
+        self._vocabulary = {token: idx for idx, token in enumerate(dict_["vocabulary"])}
+        self._reset_decoder_vocabulary()
+
+    def save_vocabulary(self, filename: str) -> None:
+        """
+        Save the vocabulary to a JSON format.
+
+        :param filename: the path to the file on disc
+        """
+        token_tuples = sorted(self.vocabulary.items(), key=lambda k_v: k_v[1])
+        tokens = [key for key, _ in token_tuples]
+        dict_ = {"properties": self._state_properties(), "vocabulary": tokens}
+        with open(filename, "w") as fileobj:
+            json.dump(dict_, fileobj, indent=4)
+
     def _strip_list(
-        self, tokens: List[str], strip_control_tokens: bool = False
-    ) -> None:
+        self,
+        tokens: List[str],
+        strip_control_tokens: bool = False,
+        truncate_at_end_token: bool = False,
+    ) -> List[str]:
         """Cleanup tokens list from control tokens.
 
         :param tokens: List of tokens
         :param strip_control_tokens: Flag to remove control tokens, defaults to False
+        :param truncate_at_end_token: If True truncate tokens after end-token
         """
+        if truncate_at_end_token and self._end_of_smiles_token in tokens:
+            end_token_idx = tokens.index(self._end_of_smiles_token)
+            tokens = tokens[: end_token_idx + 1]
+
         strip_characters: List[str] = [self._padding_token]
         if strip_control_tokens:
             strip_characters.extend(
@@ -496,6 +551,8 @@ class SMILESTokenizer:
 
         while next(reversed_tokens) in strip_characters:
             tokens.pop()
+
+        return tokens
 
     def _get_compiled_regex(
         self, tokens: List[str], regex_tokens: List[str]
@@ -530,6 +587,27 @@ class SMILESTokenizer:
             raise ValueError(
                 f"unknown choice of encoding: {encoding_type}, muse be either 'one hot' or 'index'"
             )
+
+    def _state_properties(self) -> Dict[str, Any]:
+        """Return properties to reconstruct the internal state of the tokenizer"""
+        dict_ = {"regex": self._re.pattern if self._re else ""}
+        dict_["special_tokens"] = {
+            name: val for name, val in self.special_tokens.items()
+        }
+        return dict_
+
+    def _update_state(self, dict_: Dict[str, Any]) -> None:
+        """Update the internal state with properties loaded from disc"""
+        if dict_["regex"]:
+            self._re = re.compile(dict_["regex"])
+        else:
+            self._re = None
+        self._beginning_of_smiles_token = dict_["special_tokens"]["start"]
+        self._end_of_smiles_token = dict_["special_tokens"]["end"]
+        self._padding_token = dict_["special_tokens"]["pad"]
+        self._unknown_token = dict_["special_tokens"]["unknown"]
+        self._regex_tokens = []
+        self._tokens = []
 
 
 class SMILESAtomTokenizer(SMILESTokenizer):

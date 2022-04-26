@@ -16,7 +16,7 @@ class TestRandomizer:
                 test_smiles = [smi[:-1] for smi in smiles_data]
         except FileNotFoundError:
             print("Cannot find 'test_smiles.smi'")
-        
+
         return test_smiles
 
     def get_num_new_random_smiles(self, test_smiles, smiles):
@@ -69,15 +69,16 @@ class TestRandomizer:
         num_new = self.get_num_new_random_smiles(get_test_smiles, randomized_smiles)
 
         assert num_new / len(mols) > 0.99
-        
+
     def test_mol_equality_random(self, get_test_smiles):
         """Check molecular equivalence after randomization by canonicalizing"""
         smiles_randomizer_unrestricted = SMILESAugmenter(restricted=False)
         randomized_smiles = smiles_randomizer_unrestricted(get_test_smiles)
-        
+
         assert all(
             [
-                Chem.MolToSmiles(Chem.MolFromSmiles(mol1)) == Chem.MolToSmiles(Chem.MolFromSmiles(mol2))
+                Chem.MolToSmiles(Chem.MolFromSmiles(mol1))
+                == Chem.MolToSmiles(Chem.MolFromSmiles(mol2))
                 for mol1, mol2 in zip(randomized_smiles, get_test_smiles)
             ]
         )
@@ -86,10 +87,11 @@ class TestRandomizer:
         """Check molecular equivalence after randomization by canonicalizing"""
         smiles_randomizer_unrestricted = SMILESAugmenter(restricted=True)
         randomized_smiles = smiles_randomizer_unrestricted(get_test_smiles)
-        
+
         assert all(
             [
-                Chem.MolToSmiles(Chem.MolFromSmiles(mol1)) == Chem.MolToSmiles(Chem.MolFromSmiles(mol2))
+                Chem.MolToSmiles(Chem.MolFromSmiles(mol1))
+                == Chem.MolToSmiles(Chem.MolFromSmiles(mol2))
                 for mol1, mol2 in zip(randomized_smiles, get_test_smiles)
             ]
         )
@@ -107,3 +109,34 @@ class TestRandomizer:
         smiles_nonrand = randomizer(get_test_smiles)
 
         assert smiles_nonrand == get_test_smiles
+
+    def test_mol_low_aug_prob(self, get_test_smiles):
+        """Check that by setting a very low augment probability few new SMILES are generated"""
+        smiles_randomizer_unrestricted = SMILESAugmenter(
+            restricted=False, augment_prob=0.1
+        )
+        randomized_smiles = smiles_randomizer_unrestricted(get_test_smiles)
+
+        num_new = self.get_num_new_random_smiles(get_test_smiles, randomized_smiles)
+        assert num_new / len(randomized_smiles) < 0.2
+        assert num_new >= 1
+
+    def test_mol_zero_aug_prob(self, get_test_smiles):
+        """Check that by setting augment probability to zero, no new SMILES are generated"""
+        smiles_randomizer_unrestricted = SMILESAugmenter(
+            restricted=False, augment_prob=0.0
+        )
+        randomized_smiles = smiles_randomizer_unrestricted(get_test_smiles)
+
+        num_new = self.get_num_new_random_smiles(get_test_smiles, randomized_smiles)
+        assert num_new == 0
+
+    def test_mol_zero_aug_prob_restricted(self, get_test_smiles):
+        """Check that by setting augment probability to zero, no new SMILES are generated"""
+        smiles_randomizer_unrestricted = SMILESAugmenter(
+            restricted=True, augment_prob=0.0
+        )
+        randomized_smiles = smiles_randomizer_unrestricted(get_test_smiles)
+
+        num_new = self.get_num_new_random_smiles(get_test_smiles, randomized_smiles)
+        assert num_new == 0
