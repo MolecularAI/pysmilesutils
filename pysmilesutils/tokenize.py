@@ -178,6 +178,7 @@ class SMILESTokenizer:
         self,
         data: Union[List[str], str],
         encoding_type: Optional[str] = None,
+        enclose: bool = True,
     ) -> List[torch.Tensor]:
         """Encodes a list of SMILES or a single SMILES into torch tensor(s).
 
@@ -190,6 +191,8 @@ class SMILESTokenizer:
         :param encoding_type: The type of encoding to convert to,
                 'index' or 'one hot'. If `None` is provided the value specified in
                 the class is used., defaults to None
+        :param enclose: if `True`, each SMILES is enclosed by the
+                `_beginning_of_smiles_token` and `_end_of_smiles_token`. Defaults to `True`.
 
         :raises ValueError: If the `encoding_type` is invalid.
 
@@ -203,13 +206,13 @@ class SMILESTokenizer:
             # Convert string to a list with one string
             data = [data]
 
-        tokenized_data = self.tokenize(data)
+        tokenized_data = self.tokenize(data, enclose=enclose)
         id_data = self.convert_tokens_to_ids(tokenized_data)
         encoded_data = self.convert_ids_to_encoding(id_data, encoding_type)
 
         return encoded_data
 
-    def tokenize(self, data: List[str]) -> List[List[str]]:
+    def tokenize(self, data: List[str], enclose: bool = True) -> List[List[str]]:
         """Tokenizes a list of SMILES into lists of tokens.
 
         The conversion is done by parsing the SMILES using regular expressions, which have been
@@ -218,6 +221,9 @@ class SMILESTokenizer:
         `encode` function.
 
         :param data: A list os SMILES to be tokenized.
+        :param enclose: if `True`, each SMILES is enclosed by the
+                `_beginning_of_smiles_token` and `_end_of_smiles_token`. Defaults to `True`.
+
 
         :return: Lists of tokens.
         """
@@ -225,9 +231,14 @@ class SMILESTokenizer:
 
         for smi in data:
             tokens = self.re.findall(smi)
-            tokenized_data.append(
-                [self._beginning_of_smiles_token] + tokens + [self._end_of_smiles_token]
-            )
+            if enclose:
+                tokenized_data.append(
+                    [self._beginning_of_smiles_token]
+                    + tokens
+                    + [self._end_of_smiles_token]
+                )
+            else:
+                tokenized_data.append(tokens)
 
         return tokenized_data
 
@@ -285,7 +296,9 @@ class SMILESTokenizer:
         return onehot_data
 
     def decode(
-        self, encoded_data: List[torch.Tensor], encoding_type: Optional[str] = None
+        self,
+        encoded_data: List[torch.Tensor],
+        encoding_type: Optional[str] = None,
     ) -> List[str]:
         """Decodes a list of SMILES encodings back into SMILES.
 
@@ -642,7 +655,7 @@ class SMILESAtomTokenizer(SMILESTokenizer):
 
         super().create_vocabulary_from_smiles(smiles)
 
-    def tokenize(self, smiles: List[str]) -> List[List[str]]:
+    def tokenize(self, smiles: List[str], enclose: bool = True) -> List[List[str]]:
         """Converts a list of SMILES into a list of lists of tokens, where all atoms are
         considered to be tokens.
 
@@ -652,10 +665,13 @@ class SMILESAtomTokenizer(SMILESTokenizer):
 
 
         :param smiles: List of SMILES.
+        :param enclose: if `True`, each SMILES is enclosed by the
+                `_beginning_of_smiles_token` and `_end_of_smiles_token`. Defaults to `True`.
+
 
         :return: List of tokenized SMILES.
         """
-        data_tokenized = super().tokenize(smiles)
+        data_tokenized = super().tokenize(smiles, enclose)
         final_data = []
         for tokens in data_tokenized:
             final_tokens = []
