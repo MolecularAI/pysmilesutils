@@ -5,7 +5,6 @@ import json
 import warnings
 from re import Pattern
 from typing import Dict
-from typing import Iterator
 from typing import List
 from typing import Optional
 from typing import Union
@@ -544,12 +543,10 @@ class SMILESTokenizer:
             strip_characters.extend(
                 [self._beginning_of_smiles_token, self._end_of_smiles_token]
             )
-        while tokens[0] in strip_characters:
+        while len(tokens) > 0 and tokens[0] in strip_characters:
             tokens.pop(0)
 
-        reversed_tokens: Iterator[str] = reversed(tokens)
-
-        while next(reversed_tokens) in strip_characters:
+        while len(tokens) > 0 and tokens[-1] in strip_characters:
             tokens.pop()
 
         return tokens
