@@ -601,6 +601,8 @@ class SMILESTokenizer:
     def _state_properties(self) -> Dict[str, Any]:
         """Return properties to reconstruct the internal state of the tokenizer"""
         dict_ = {"regex": self._re.pattern if self._re else ""}
+        dict_["_regex_tokens"] = self._regex_tokens
+        dict_["_tokens"] = self._tokens
         dict_["special_tokens"] = {
             name: val for name, val in self.special_tokens.items()
         }
@@ -616,8 +618,8 @@ class SMILESTokenizer:
         self._end_of_smiles_token = dict_["special_tokens"]["end"]
         self._padding_token = dict_["special_tokens"]["pad"]
         self._unknown_token = dict_["special_tokens"]["unknown"]
-        self._regex_tokens = []
-        self._tokens = []
+        self._regex_tokens = dict_.get("_regex_tokens",[])
+        self._tokens = dict_.get("_tokens",[])
 
 
 class SMILESAtomTokenizer(SMILESTokenizer):
