@@ -5,6 +5,7 @@ import json
 import warnings
 from re import Pattern
 from typing import Dict
+from typing import Iterator
 from typing import List
 from typing import Optional
 from typing import Union
@@ -224,7 +225,6 @@ class SMILESTokenizer:
         :param enclose: if `True`, each SMILES is enclosed by the
                 `_beginning_of_smiles_token` and `_end_of_smiles_token`. Defaults to `True`.
 
-
         :return: Lists of tokens.
         """
         tokenized_data = []
@@ -296,9 +296,7 @@ class SMILESTokenizer:
         return onehot_data
 
     def decode(
-        self,
-        encoded_data: List[torch.Tensor],
-        encoding_type: Optional[str] = None,
+        self, encoded_data: List[torch.Tensor], encoding_type: Optional[str] = None
     ) -> List[str]:
         """Decodes a list of SMILES encodings back into SMILES.
 
@@ -556,10 +554,14 @@ class SMILESTokenizer:
             strip_characters.extend(
                 [self._beginning_of_smiles_token, self._end_of_smiles_token]
             )
-        while len(tokens) > 0 and tokens[0] in strip_characters:
+        while tokens[0] in strip_characters:
             tokens.pop(0)
+            if len(tokens) == 0:
+                return tokens
 
-        while len(tokens) > 0 and tokens[-1] in strip_characters:
+        reversed_tokens: Iterator[str] = reversed(tokens)
+
+        while next(reversed_tokens) in strip_characters:
             tokens.pop()
 
         return tokens
@@ -643,13 +645,11 @@ class SMILESAtomTokenizer(SMILESTokenizer):
 
         with warnings.catch_warnings(record=smiles != []):
             super().__init__(*args, **kwargs)
-            
             if tokens is not None:
                 tokens = list(set(tokens + ["Br", "Cl"]))
                 super().add_tokens(tokens)
             else:
                 super().add_tokens(["Br", "Cl"])
-                
             super().add_regex_token_patterns(regex_tokens_patterns + [r"\[[^\]]*\]"])
         self.re_block_atom = re.compile(r"(Zn|Sn|Sc|[A-Z][a-z]?(?<!c|n|o|p|s)|se|as|.)")
 
@@ -667,7 +667,6 @@ class SMILESAtomTokenizer(SMILESTokenizer):
         :param smiles: List of SMILES.
         :param enclose: if `True`, each SMILES is enclosed by the
                 `_beginning_of_smiles_token` and `_end_of_smiles_token`. Defaults to `True`.
-
 
         :return: List of tokenized SMILES.
         """
