@@ -1,3 +1,5 @@
+This repository has been replaced by [AiZynthModels](https://github.com/MolecularAI/aizynthmodels).
+
 # PySMILESutils
 
 PySMILES utilities is a package of tools for handling encoding and decoding of SMILES for deep learning applications in PyTorch. The package contains a flexible tokenizer that can be used to analyze a given SMILES dataset using regular expressions and build a vocabulary of tokens, which can subsequently be used to encode the molecules via SMILES into pytorch tensors.
